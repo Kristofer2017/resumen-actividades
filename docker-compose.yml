@@ -1,0 +1,14 @@
+services:
+  bitacora:
+    build: .
+    image: bitacora:local
+    container_name: bitacora
+    ports:
+      - "5050:5050"
+    volumes:
+      - .:/app
+      - C:/Windows/Fonts:/usr/share/fonts/truetype/msttcorefonts:ro
+    environment:
+      FONT_DIR: /usr/share/fonts/truetype/msttcorefonts
+      PYTHONUNBUFFERED: "1"
+    restart: always

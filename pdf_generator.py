@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -16,8 +17,40 @@ from reportlab.pdfgen import canvas
 BASE_DIR = Path(__file__).resolve().parent
 LOGO_PATH = BASE_DIR / "static" / "logo.png"
 
-pdfmetrics.registerFont(TTFont("Arial", r"C:\Windows\Fonts\arial.ttf"))
-pdfmetrics.registerFont(TTFont("Arial-Bold", r"C:\Windows\Fonts\arialbd.ttf"))
+
+def _font_file(name: str) -> str:
+    """Busca Arial en Docker (FONT_DIR) o en Windows."""
+    dirs = []
+    env_dir = os.environ.get("FONT_DIR")
+    if env_dir:
+        dirs.append(Path(env_dir))
+    dirs.extend(
+        [
+            Path("/usr/share/fonts/truetype/msttcorefonts"),
+            Path(r"C:\Windows\Fonts"),
+            Path("/Windows/Fonts"),
+        ]
+    )
+    wanted = name.lower()
+    for folder in dirs:
+        if not folder.is_dir():
+            continue
+        direct = folder / name
+        if direct.is_file():
+            return str(direct)
+        try:
+            for entry in folder.iterdir():
+                if entry.is_file() and entry.name.lower() == wanted:
+                    return str(entry)
+        except OSError:
+            continue
+    raise FileNotFoundError(
+        f"No se encontró la fuente {name}. Define FONT_DIR o monta las fuentes de Windows."
+    )
+
+
+pdfmetrics.registerFont(TTFont("Arial", _font_file("arial.ttf")))
+pdfmetrics.registerFont(TTFont("Arial-Bold", _font_file("arialbd.ttf")))
 
 MESES = [
     "enero",
