@@ -10,7 +10,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 from db import clear_days, get_days_text, init_db, upsert_day
 from pdf_generator import (
     generate_pdf,
-    previous_iso_week,
+    current_iso_week,
     report_from_dict,
     suggested_filename,
     week_days,
@@ -34,7 +34,7 @@ def _parse_day(value: str) -> str:
 
 @app.get("/")
 def index():
-    year, week = previous_iso_week()
+    year, week = current_iso_week()
     return render_template(
         "index.html",
         defaults=DEFAULTS,
@@ -85,7 +85,7 @@ def _range_label(start, end) -> str:
 
 @app.get("/api/defaults")
 def api_defaults():
-    year, week = previous_iso_week()
+    year, week = current_iso_week()
     return jsonify({**DEFAULTS, "year": year, "week": week})
 
 
@@ -110,8 +110,8 @@ def api_clear_week_days():
 
 def _report_for_viewed_week(data: dict):
     """PDF solo con la semana que se está viendo; días desde SQLite."""
-    year = int(data.get("year") or previous_iso_week()[0])
-    week = int(data.get("week") or previous_iso_week()[1])
+    year = int(data.get("year") or current_iso_week()[0])
+    week = int(data.get("week") or current_iso_week()[1])
     week_dates = [d.isoformat() for d in week_days(year, week)]
     saved = get_days_text(week_dates)
     payload = {

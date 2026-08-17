@@ -100,10 +100,9 @@ def monday_of_iso_week(year: int, week: int) -> date:
     return date.fromisocalendar(year, week, 1)
 
 
-def previous_iso_week(ref: date | None = None) -> tuple[int, int]:
+def current_iso_week(ref: date | None = None) -> tuple[int, int]:
     ref = ref or date.today()
-    prev = ref - timedelta(days=7)
-    iso = prev.isocalendar()
+    iso = ref.isocalendar()
     return iso.year, iso.week
 
 
@@ -191,8 +190,8 @@ class ActivityReport:
     nombre: str = "Rafael Antonio Aparicio Umaña"
     cargo: str = "Desarrollador Full Stack - Unidad de Tecnologías de la Información"
     unidad: str = "Unidad de Tecnología de la Información"
-    year: int = field(default_factory=lambda: previous_iso_week()[0])
-    week: int = field(default_factory=lambda: previous_iso_week()[1])
+    year: int = field(default_factory=lambda: current_iso_week()[0])
+    week: int = field(default_factory=lambda: current_iso_week()[1])
     cumplimiento: str = ""
     proyecciones: str = ""
     observaciones: str = ""
@@ -474,8 +473,8 @@ def generate_pdf(report: ActivityReport) -> bytes:
 
 def report_from_dict(data: dict) -> ActivityReport:
     defaults = ActivityReport()
-    year = int(data.get("year") or previous_iso_week()[0])
-    week = int(data.get("week") or previous_iso_week()[1])
+    year = int(data.get("year") or current_iso_week()[0])
+    week = int(data.get("week") or current_iso_week()[1])
     days_in: Sequence[dict] = data.get("days") or []
     days: list[DayActivities] = []
     for entry in days_in:
