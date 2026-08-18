@@ -9,102 +9,101 @@
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 </head>
-<body>
-  <div class="page">
-    <header class="top">
-      <img class="brand-logo" src="{{ url_for('static', filename='logo.png') }}" alt="DGEHM" />
-      <div>
-        <h1>Informe de Actividades</h1>
-        <p class="subtitle">Genera el PDF semanal con el formato oficial</p>
+<body class="mode-day">
+  <div class="workspace">
+    <aside class="editor">
+      <header class="top">
+        <img class="brand-logo" src="{{ url_for('static', filename='logo.png') }}" alt="DGEHM" />
+        <div>
+          <h1>Informe de Actividades</h1>
+          <p class="subtitle" id="week-range">Cargando semana…</p>
+        </div>
+      </header>
+
+      <div class="toolbar">
+        <div class="mode-toggle" role="tablist" aria-label="Vista">
+          <button type="button" id="btn-mode-day" class="mode-btn is-active" aria-pressed="true">Día</button>
+          <button type="button" id="btn-mode-week" class="mode-btn" aria-pressed="false">Semana</button>
+        </div>
+        <div class="week-controls">
+          <label class="field inline">
+            <span>Año</span>
+            <input id="year" type="number" min="2000" max="2100" value="{{ year }}" />
+          </label>
+          <label class="field inline">
+            <span>Semana</span>
+            <input id="week" type="number" min="1" max="53" value="{{ week }}" />
+          </label>
+          <button type="button" id="btn-prev-week" class="btn ghost" title="Semana anterior">←</button>
+          <button type="button" id="btn-next-week" class="btn ghost" title="Semana siguiente">→</button>
+        </div>
       </div>
-    </header>
 
-    <main class="layout">
-      <section class="panel">
-        <h2>Datos del informe</h2>
-
-        <div class="grid-2">
-          <label class="field">
-            <span>Nombre</span>
-            <input id="nombre" type="text" value="{{ defaults.nombre }}" autocomplete="name" />
-          </label>
-          <label class="field">
-            <span>Cargo</span>
-            <input id="cargo" type="text" value="{{ defaults.cargo }}" />
-          </label>
-        </div>
-
-        <label class="field">
-          <span>Unidad</span>
-          <input id="unidad" type="text" value="{{ defaults.unidad }}" />
-        </label>
-
-        <div class="week-bar">
-          <div class="week-controls">
-            <label class="field inline">
-              <span>Año</span>
-              <input id="year" type="number" min="2000" max="2100" value="{{ year }}" />
+      <div class="editor-scroll">
+        <section class="panel compact">
+          <div class="grid-2">
+            <label class="field">
+              <span>Nombre</span>
+              <input id="nombre" type="text" value="{{ defaults.nombre }}" autocomplete="name" />
             </label>
-            <label class="field inline">
-              <span>Semana</span>
-              <input id="week" type="number" min="1" max="53" value="{{ week }}" />
+            <label class="field">
+              <span>Cargo</span>
+              <input id="cargo" type="text" value="{{ defaults.cargo }}" />
             </label>
-            <button type="button" id="btn-prev-week" class="btn ghost" title="Semana anterior">←</button>
-            <button type="button" id="btn-next-week" class="btn ghost" title="Semana siguiente">→</button>
           </div>
-          <p class="week-range" id="week-range">Cargando semana…</p>
-          <p class="hint">Por defecto: semana laboral actual (lun–vie). Cada día se guarda solo al escribir. El PDF usa únicamente la semana que estás viendo.</p>
-        </div>
-      </section>
+          <label class="field tight">
+            <span>Unidad</span>
+            <input id="unidad" type="text" value="{{ defaults.unidad }}" />
+          </label>
+        </section>
 
-      <section class="panel">
-        <div class="section-head">
-          <h2>2) Actividades por día</h2>
-          <span class="chip" id="filled-count">0 días con actividades</span>
-        </div>
-        <p class="hint">Una actividad por línea. No hace falta poner <code>--</code>; se agregan al exportar.</p>
-        <div id="days" class="days"></div>
-      </section>
+        <section id="view-day" class="panel day-view">
+          <div class="section-head">
+            <h2 id="day-title">Actividades del día</h2>
+            <span class="chip" id="filled-count">0 días con actividades</span>
+          </div>
+          <div id="day-tabs" class="day-tabs" role="tablist" aria-label="Días de la semana"></div>
+          <p class="hint">Una actividad por línea. No hace falta poner <code>--</code>.</p>
+          <textarea id="day-editor" placeholder="Escribe las actividades de este día…"></textarea>
+        </section>
 
-      <section class="panel">
-        <h2>1) Cumplimiento e instrucciones</h2>
-        <label class="field">
-          <span>Una línea por ítem (opcional)</span>
-          <textarea id="cumplimiento" rows="3" placeholder="Ej. Entrega de módulo de reportes"></textarea>
-        </label>
-      </section>
+        <section id="view-week" class="panel week-view">
+          <div class="section-head">
+            <h2>Actividades por día</h2>
+            <span class="chip" id="filled-count-week">0 días con actividades</span>
+          </div>
+          <p class="hint">Una actividad por línea. No hace falta poner <code>--</code>.</p>
+          <div id="days" class="days"></div>
+        </section>
 
-      <section class="panel">
-        <h2>3) Proyecciones siguiente semana</h2>
-        <label class="field">
-          <span>Una línea por ítem (opcional)</span>
-          <textarea id="proyecciones" rows="3" placeholder="Ej. Continuar calibración de equipos"></textarea>
-        </label>
-      </section>
+        <details class="panel extras">
+          <summary>Otras secciones del informe</summary>
+          <label class="field">
+            <span>1) Cumplimiento e instrucciones</span>
+            <textarea id="cumplimiento" rows="3" placeholder="Ej. Entrega de módulo de reportes"></textarea>
+          </label>
+          <label class="field">
+            <span>3) Proyecciones siguiente semana</span>
+            <textarea id="proyecciones" rows="3" placeholder="Ej. Continuar calibración de equipos"></textarea>
+          </label>
+          <label class="field">
+            <span>4) Observaciones</span>
+            <textarea id="observaciones" rows="3" placeholder="Notas relevantes de la semana"></textarea>
+          </label>
+        </details>
+      </div>
 
-      <section class="panel">
-        <h2>4) Observaciones</h2>
-        <label class="field">
-          <span>Una línea por ítem (opcional)</span>
-          <textarea id="observaciones" rows="3" placeholder="Notas relevantes de la semana"></textarea>
-        </label>
-      </section>
-    </main>
+      <footer class="actions">
+        <button type="button" id="btn-clear-days" class="btn ghost">Limpiar semana</button>
+        <button type="button" id="btn-download" class="btn primary">Descargar PDF</button>
+      </footer>
+    </aside>
 
-    <footer class="actions">
-      <button type="button" id="btn-clear-days" class="btn ghost">Limpiar días</button>
-      <button type="button" id="btn-preview" class="btn secondary">Vista previa</button>
-      <button type="button" id="btn-download" class="btn primary">Descargar PDF</button>
-    </footer>
+    <section class="preview-pane">
+      <span id="preview-status" class="preview-status" hidden>Actualizando…</span>
+      <iframe id="preview-frame" title="Vista previa PDF"></iframe>
+    </section>
   </div>
-
-  <dialog id="preview-dialog">
-    <div class="dialog-bar">
-      <strong>Vista previa del PDF</strong>
-      <button type="button" id="btn-close-preview" class="btn ghost">Cerrar</button>
-    </div>
-    <iframe id="preview-frame" title="Vista previa PDF"></iframe>
-  </dialog>
 
   <script>
     window.__INITIAL__ = {
