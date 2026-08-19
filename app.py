@@ -11,6 +11,7 @@ from db import clear_days, get_days_text, init_db, upsert_day
 from pdf_generator import (
     generate_pdf,
     current_iso_week,
+    pdf_preview_jpeg,
     report_from_dict,
     suggested_filename,
     week_days,
@@ -142,11 +143,12 @@ def api_preview():
     data = request.get_json(force=True, silent=True) or {}
     report = _report_for_viewed_week(data)
     pdf_bytes = generate_pdf(report)
+    image_bytes = pdf_preview_jpeg(pdf_bytes)
     return send_file(
-        BytesIO(pdf_bytes),
-        mimetype="application/pdf",
+        BytesIO(image_bytes),
+        mimetype="image/jpeg",
         as_attachment=False,
-        download_name=suggested_filename(report),
+        download_name="preview.jpg",
     )
 
 

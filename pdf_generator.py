@@ -508,3 +508,35 @@ def suggested_filename(report: ActivityReport | None = None) -> str:
     """Nombre de descarga con la fecha de hoy (aammdd)."""
     today = date.today()
     return f"{today.strftime('%y%m%d')} - Formato informacion de actividades.pdf"
+
+
+def pdf_preview_jpeg(pdf_bytes: bytes, scale: float = 1.7) -> bytes:
+    """Rasteriza el PDF a JPEG para una vista previa sin recargar el visor."""
+    import pymupdf
+    from PIL import Image
+
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    images: list[Image.Image] = []
+    matrix = pymupdf.Matrix(scale, scale)
+    for page in doc:
+        pix = page.get_pixmap(matrix=matrix, alpha=False)
+        images.append(Image.frombytes("RGB", (pix.width, pix.height), pix.samples))
+    doc.close()
+    if not images:
+        raise ValueError("PDF vacío")
+
+    if len(images) == 1:
+        page_img = images[0]
+    else:
+        gap = 10
+        width = max(im.width for im in images)
+        height = sum(im.height for im in images) + gap * (len(images) - 1)
+        page_img = Image.new("RGB", (width, height), (82, 86, 89))
+        y = 0
+        for im in images:
+            page_img.paste(im, (0, y))
+            y += im.height + gap
+
+    buffer = io.BytesIO()
+    page_img.save(buffer, format="JPEG", quality=86, optimize=True)
+    return buffer.getvalue()

@@ -14,7 +14,9 @@
     selectedDate: null,
     previewTimer: null,
     previewAbort: null,
-    previewUrl: null,
+    previewFront: "a",
+    previewUrls: { a: null, b: null },
+    previewFingerprint: "",
   };
 
   const els = {
@@ -30,7 +32,8 @@
     cumplimiento: $("cumplimiento"),
     proyecciones: $("proyecciones"),
     observaciones: $("observaciones"),
-    previewFrame: $("preview-frame"),
+    previewA: $("preview-a"),
+    previewB: $("preview-b"),
     previewStatus: $("preview-status"),
     dayTabs: $("day-tabs"),
     dayEditor: $("day-editor"),
@@ -74,9 +77,15 @@
 
   function setPreviewStatus(text) {
     if (!els.previewStatus) return;
-    const busy = text && text !== "Listo";
     els.previewStatus.textContent = text || "";
-    els.previewStatus.hidden = !busy;
+    els.previewStatus.hidden = !text;
+  }
+
+  function previewFingerprint() {
+    return JSON.stringify({
+      ...buildPayload(),
+      days: state.dayText,
+    });
   }
 
   async function saveDay(date, text) {
@@ -138,7 +147,6 @@
 
   function queuePreview() {
     clearTimeout(state.previewTimer);
-    setPreviewStatus("Actualizando…");
     state.previewTimer = setTimeout(() => {
       refreshPreview().catch((err) => {
         if (err.name !== "AbortError") setPreviewStatus("Error al generar");
@@ -146,11 +154,38 @@
     }, PREVIEW_DELAY_MS);
   }
 
+  function showPreviewUrl(url) {
+    const backKey = state.previewFront === "a" ? "b" : "a";
+    const back = backKey === "a" ? els.previewA : els.previewB;
+    const front = state.previewFront === "a" ? els.previewA : els.previewB;
+    return new Promise((resolve, reject) => {
+      const onLoad = () => {
+        back.classList.add("is-shown");
+        front.classList.remove("is-shown");
+        const oldUrl = state.previewUrls[state.previewFront];
+        if (oldUrl) URL.revokeObjectURL(oldUrl);
+        state.previewUrls[state.previewFront] = null;
+        state.previewUrls[backKey] = url;
+        state.previewFront = backKey;
+        resolve();
+      };
+      const onError = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("No se pudo mostrar la vista previa"));
+      };
+      back.addEventListener("load", onLoad, { once: true });
+      back.addEventListener("error", onError, { once: true });
+      back.src = url;
+    });
+  }
+
   async function refreshPreview() {
     await flushPendingSaves();
+    const fingerprint = previewFingerprint();
+    if (fingerprint === state.previewFingerprint) return;
+
     if (state.previewAbort) state.previewAbort.abort();
     state.previewAbort = new AbortController();
-    setPreviewStatus("Actualizando…");
     const res = await fetch("/api/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -160,10 +195,9 @@
     if (!res.ok) throw new Error("Error al generar el PDF");
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-    state.previewUrl = url;
-    els.previewFrame.src = `${url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
-    setPreviewStatus("Listo");
+    await showPreviewUrl(url);
+    state.previewFingerprint = fingerprint;
+    setPreviewStatus("");
   }
 
   function escapeHtml(str) {
