@@ -1,19 +1,17 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  const SAVE_DELAY_MS = 250;
-  const PREVIEW_DELAY_MS = 450;
-
   const state = {
     year: window.__INITIAL__.year,
     week: window.__INITIAL__.week,
     days: [],
     dayText: {},
-    saveTimers: {},
     pendingSaves: {},
+    savingDates: new Set(),
     mode: "day",
     selectedDate: null,
-    previewTimer: null,
     previewAbort: null,
+    previewInFlight: false,
+    previewQueued: false,
     previewFront: "a",
     previewUrls: { a: null, b: null },
     previewFingerprint: "",
@@ -89,7 +87,6 @@
   }
 
   async function saveDay(date, text) {
-    delete state.pendingSaves[date];
     const res = await fetch("/api/days", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -101,35 +98,35 @@
   function collectVisibleText() {
     if (els.dayEditor && state.selectedDate) {
       state.dayText[state.selectedDate] = els.dayEditor.value;
-      state.pendingSaves[state.selectedDate] = els.dayEditor.value;
     }
     els.days.querySelectorAll("textarea[data-date]").forEach((ta) => {
       state.dayText[ta.dataset.date] = ta.value;
-      state.pendingSaves[ta.dataset.date] = ta.value;
     });
   }
 
-  function queueSave(date, text) {
+  function syncDayText(date, text) {
     state.dayText[date] = text;
     state.pendingSaves[date] = text;
-    if (state.saveTimers[date]) clearTimeout(state.saveTimers[date]);
-    state.saveTimers[date] = setTimeout(() => {
-      saveDay(date, text)
-        .then(() => queuePreview())
-        .catch((e) => alert(e.message));
-    }, SAVE_DELAY_MS);
+    persistDay(date).catch((e) => alert(e.message));
+  }
+
+  async function persistDay(date) {
+    if (state.savingDates.has(date)) return;
+    while (date in state.pendingSaves) {
+      const text = state.pendingSaves[date];
+      delete state.pendingSaves[date];
+      state.savingDates.add(date);
+      try {
+        await saveDay(date, text);
+      } finally {
+        state.savingDates.delete(date);
+      }
+    }
   }
 
   async function flushPendingSaves() {
     collectVisibleText();
-    const pending = { ...state.pendingSaves };
-    Object.keys(state.saveTimers).forEach((date) => {
-      clearTimeout(state.saveTimers[date]);
-      delete state.saveTimers[date];
-    });
-    await Promise.all(
-      Object.entries(pending).map(([date, text]) => saveDay(date, text))
-    );
+    await Promise.all(currentWeekDates().map((date) => persistDay(date)));
   }
 
   function buildPayload() {
@@ -146,12 +143,10 @@
   }
 
   function queuePreview() {
-    clearTimeout(state.previewTimer);
-    state.previewTimer = setTimeout(() => {
-      refreshPreview().catch((err) => {
-        if (err.name !== "AbortError") setPreviewStatus("Error al generar");
-      });
-    }, PREVIEW_DELAY_MS);
+    state.previewQueued = true;
+    refreshPreview().catch((err) => {
+      if (err.name !== "AbortError") setPreviewStatus("Error al generar");
+    });
   }
 
   function showPreviewUrl(url) {
@@ -180,23 +175,34 @@
   }
 
   async function refreshPreview() {
-    await flushPendingSaves();
-    const fingerprint = previewFingerprint();
-    if (fingerprint === state.previewFingerprint) return;
+    if (state.previewInFlight) return;
 
-    if (state.previewAbort) state.previewAbort.abort();
-    state.previewAbort = new AbortController();
-    const res = await fetch("/api/preview", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildPayload()),
-      signal: state.previewAbort.signal,
-    });
-    if (!res.ok) throw new Error("Error al generar el PDF");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    await showPreviewUrl(url);
-    state.previewFingerprint = fingerprint;
+    while (state.previewQueued) {
+      state.previewQueued = false;
+      collectVisibleText();
+      const fingerprint = previewFingerprint();
+      if (fingerprint === state.previewFingerprint) continue;
+
+      if (state.previewAbort) state.previewAbort.abort();
+      state.previewAbort = new AbortController();
+      state.previewInFlight = true;
+      setPreviewStatus("Actualizando…");
+      try {
+        const res = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildPayload()),
+          signal: state.previewAbort.signal,
+        });
+        if (!res.ok) throw new Error("Error al generar el PDF");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        await showPreviewUrl(url);
+        state.previewFingerprint = fingerprint;
+      } finally {
+        state.previewInFlight = false;
+      }
+    }
     setPreviewStatus("");
   }
 
@@ -281,9 +287,13 @@
       ta.addEventListener("input", () => {
         wrap.classList.toggle("has-content", Boolean(ta.value.trim()));
         updateFilledChip();
-        queueSave(day.date, ta.value);
+        syncDayText(day.date, ta.value);
+        queuePreview();
       });
-      ta.addEventListener("change", () => queueSave(day.date, ta.value));
+      ta.addEventListener("change", () => {
+        syncDayText(day.date, ta.value);
+        queuePreview();
+      });
       els.days.appendChild(wrap);
     });
     updateFilledChip();
@@ -361,11 +371,14 @@
       const d = state.days[i];
       if (d) btn.classList.toggle("has-content", Boolean((state.dayText[d.date] || "").trim()));
     });
-    queueSave(day.date, text);
+    syncDayText(day.date, text);
+    queuePreview();
   });
   els.dayEditor.addEventListener("change", () => {
     const day = selectedDay();
-    if (day) queueSave(day.date, els.dayEditor.value);
+    if (!day) return;
+    syncDayText(day.date, els.dayEditor.value);
+    queuePreview();
   });
 
   els.btnModeDay.addEventListener("click", () => setMode("day"));
@@ -389,10 +402,6 @@
 
   $("btn-clear-days").addEventListener("click", async () => {
     if (!confirm("¿Borrar las actividades de esta semana?")) return;
-    Object.keys(state.saveTimers).forEach((date) => {
-      clearTimeout(state.saveTimers[date]);
-      delete state.saveTimers[date];
-    });
     state.pendingSaves = {};
     const res = await fetch("/api/week/clear-days", {
       method: "POST",
