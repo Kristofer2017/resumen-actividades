@@ -7,7 +7,14 @@ from io import BytesIO
 
 from flask import Flask, jsonify, render_template, request, send_file
 
-from db import clear_days, get_days_text, init_db, upsert_day
+from db import (
+    clear_days,
+    export_all_days,
+    get_days_text,
+    import_days,
+    init_db,
+    upsert_day,
+)
 from pdf_generator import (
     generate_pdf,
     current_iso_week,
@@ -107,6 +114,54 @@ def api_clear_week_days():
     dates = [d.isoformat() for d in week_days(year, week)]
     clear_days(dates)
     return jsonify({"ok": True, "dates": dates})
+
+
+@app.get("/api/export")
+def api_export():
+    days = export_all_days()
+    payload = {
+        "version": 1,
+        "exportedAt": datetime.now().isoformat(timespec="seconds"),
+        "days": days,
+    }
+    filename = f"bitacora-{datetime.now().strftime('%y%m%d')}.json"
+    return send_file(
+        BytesIO(json_bytes(payload)),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.post("/api/import")
+def api_import():
+    data = request.get_json(force=True, silent=True)
+    if data is None and request.files.get("file"):
+        raw = request.files["file"].read()
+        import json as _json
+
+        data = _json.loads(raw.decode("utf-8"))
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "JSON inválido"}), 400
+
+    entries = data.get("days")
+    if isinstance(entries, dict):
+        entries = [
+            {"date": key, "text": value if isinstance(value, str) else ""}
+            for key, value in entries.items()
+        ]
+    if not isinstance(entries, list):
+        return jsonify({"ok": False, "error": "Falta el arreglo 'days'"}), 400
+
+    replace = bool(data.get("replace") or request.args.get("replace") == "1")
+    count = import_days(entries, replace=replace)
+    return jsonify({"ok": True, "imported": count, "replace": replace})
+
+
+def json_bytes(payload: dict) -> bytes:
+    import json as _json
+
+    return _json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
 def _report_for_viewed_week(data: dict):

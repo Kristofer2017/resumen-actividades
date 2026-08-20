@@ -426,6 +426,71 @@
     downloadPdf().catch((e) => alert(e.message));
   });
 
+  $("btn-export").addEventListener("click", () => {
+    exportJson().catch((e) => alert(e.message));
+  });
+
+  $("btn-import").addEventListener("click", () => {
+    $("import-file").click();
+  });
+
+  $("import-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!file) return;
+    try {
+      await importJson(file);
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+
+  async function exportJson() {
+    await flushPendingSaves();
+    const res = await fetch("/api/export");
+    if (!res.ok) throw new Error("No se pudo exportar");
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(cd);
+    const filename = match
+      ? decodeURIComponent(match[1].replace(/"/g, ""))
+      : "bitacora.json";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  async function importJson(file) {
+    await flushPendingSaves();
+    const text = await file.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("El archivo no es un JSON válido");
+    }
+    const replace = confirm(
+      "¿Reemplazar toda la bitácora con este archivo?\n\nAceptar = borrar lo actual e importar.\nCancelar = fusionar (actualizar solo los días del archivo)."
+    );
+    const res = await fetch(`/api/import?replace=${replace ? "1" : "0"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "No se pudo importar");
+    }
+    const result = await res.json();
+    await loadWeek(Number(els.year.value), Number(els.week.value));
+    alert(`Importados ${result.imported} día(s).`);
+  }
+
   setMode("day");
   loadWeek(state.year, state.week).catch((e) => {
     els.weekRange.textContent = "Error cargando la semana";
