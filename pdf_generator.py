@@ -19,7 +19,22 @@ LOGO_PATH = BASE_DIR / "static" / "logo.png"
 
 
 def _font_file(name: str) -> str:
-    """Busca Arial en Docker (FONT_DIR) o en Windows."""
+    """Busca Arial (o equivalentes) en Docker, Linux o Windows."""
+    aliases = {
+        "arial.ttf": [
+            "arial.ttf",
+            "Arial.ttf",
+            "LiberationSans-Regular.ttf",
+            "DejaVuSans.ttf",
+        ],
+        "arialbd.ttf": [
+            "arialbd.ttf",
+            "Arialbd.ttf",
+            "LiberationSans-Bold.ttf",
+            "DejaVuSans-Bold.ttf",
+        ],
+    }
+    candidates = [n.lower() for n in aliases.get(name.lower(), [name])]
     dirs = []
     env_dir = os.environ.get("FONT_DIR")
     if env_dir:
@@ -27,25 +42,28 @@ def _font_file(name: str) -> str:
     dirs.extend(
         [
             Path("/usr/share/fonts/truetype/msttcorefonts"),
+            Path("/usr/share/fonts/truetype/liberation"),
+            Path("/usr/share/fonts/truetype/dejavu"),
             Path(r"C:\Windows\Fonts"),
             Path("/Windows/Fonts"),
         ]
     )
-    wanted = name.lower()
     for folder in dirs:
         if not folder.is_dir():
             continue
-        direct = folder / name
-        if direct.is_file():
-            return str(direct)
         try:
-            for entry in folder.iterdir():
-                if entry.is_file() and entry.name.lower() == wanted:
-                    return str(entry)
+            entries = {entry.name.lower(): entry for entry in folder.iterdir() if entry.is_file()}
         except OSError:
             continue
+        for candidate in candidates:
+            direct = folder / candidate
+            if direct.is_file():
+                return str(direct)
+            match = entries.get(candidate)
+            if match is not None:
+                return str(match)
     raise FileNotFoundError(
-        f"No se encontró la fuente {name}. Define FONT_DIR o monta las fuentes de Windows."
+        f"No se encontró la fuente {name}. Define FONT_DIR o instala fonts-liberation."
     )
 
 
