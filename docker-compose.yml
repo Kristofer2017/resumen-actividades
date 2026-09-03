@@ -10,4 +10,5 @@ services:
     environment:
       FONT_DIR: /usr/share/fonts/truetype/msttcorefonts
       PYTHONUNBUFFERED: "1"
+      TZ: America/El_Salvador
     restart: always

@@ -10,10 +10,16 @@ from flask import Flask, jsonify, render_template, request, send_file
 from db import (
     clear_days,
     export_all_days,
+    export_all_weeks,
     get_days_text,
+    get_settings,
+    get_week_meta,
     import_days,
+    import_weeks,
     init_db,
     upsert_day,
+    upsert_settings,
+    upsert_week_meta,
 )
 from pdf_generator import (
     generate_pdf,
@@ -43,11 +49,21 @@ def _parse_day(value: str) -> str:
 @app.get("/")
 def index():
     year, week = current_iso_week()
+    try:
+        if request.args.get("year"):
+            year = int(request.args.get("year"))
+        if request.args.get("week"):
+            week = int(request.args.get("week"))
+    except ValueError:
+        year, week = current_iso_week()
+    day = request.args.get("day") or None
+    settings = get_settings()
     return render_template(
         "index.html",
-        defaults=DEFAULTS,
+        defaults={**DEFAULTS, **{k: v for k, v in settings.items() if k in DEFAULTS}},
         year=year,
         week=week,
+        day=day,
     )
 
 
@@ -57,6 +73,7 @@ def api_week():
     week = int(request.args.get("week"))
     days = week_days(year, week)
     saved = get_days_text([d.isoformat() for d in days])
+    meta = get_week_meta(year, week)
     return jsonify(
         {
             "year": year,
@@ -73,6 +90,7 @@ def api_week():
                 for d in days
             ],
             "rangeLabel": _range_label(days[0], days[-1]),
+            **meta,
         }
     )
 
@@ -94,7 +112,36 @@ def _range_label(start, end) -> str:
 @app.get("/api/defaults")
 def api_defaults():
     year, week = current_iso_week()
-    return jsonify({**DEFAULTS, "year": year, "week": week})
+    settings = get_settings()
+    return jsonify({**DEFAULTS, **settings, "year": year, "week": week})
+
+
+@app.put("/api/settings")
+def api_save_settings():
+    data = request.get_json(force=True, silent=True) or {}
+    upsert_settings(
+        {
+            "nombre": data.get("nombre") or "",
+            "cargo": data.get("cargo") or "",
+            "unidad": data.get("unidad") or "",
+        }
+    )
+    return jsonify({"ok": True})
+
+
+@app.put("/api/week/meta")
+def api_save_week_meta():
+    data = request.get_json(force=True, silent=True) or {}
+    year = int(data.get("year"))
+    week = int(data.get("week"))
+    upsert_week_meta(
+        year,
+        week,
+        cumplimiento=data.get("cumplimiento") or "",
+        proyecciones=data.get("proyecciones") or "",
+        observaciones=data.get("observaciones") or "",
+    )
+    return jsonify({"ok": True, "year": year, "week": week})
 
 
 @app.put("/api/days")
@@ -118,11 +165,12 @@ def api_clear_week_days():
 
 @app.get("/api/export")
 def api_export():
-    days = export_all_days()
     payload = {
-        "version": 1,
+        "version": 2,
         "exportedAt": datetime.now().isoformat(timespec="seconds"),
-        "days": days,
+        "days": export_all_days(),
+        "weeks": export_all_weeks(),
+        "settings": get_settings(),
     }
     filename = f"bitacora-{datetime.now().strftime('%y%m%d')}.json"
     return send_file(
@@ -155,7 +203,18 @@ def api_import():
 
     replace = bool(data.get("replace") or request.args.get("replace") == "1")
     count = import_days(entries, replace=replace)
-    return jsonify({"ok": True, "imported": count, "replace": replace})
+    weeks = data.get("weeks") if isinstance(data.get("weeks"), list) else []
+    week_count = import_weeks(weeks, replace=replace)
+    if isinstance(data.get("settings"), dict):
+        upsert_settings(data["settings"])
+    return jsonify(
+        {
+            "ok": True,
+            "imported": count,
+            "weeksImported": week_count,
+            "replace": replace,
+        }
+    )
 
 
 def json_bytes(payload: dict) -> bytes:
@@ -165,15 +224,22 @@ def json_bytes(payload: dict) -> bytes:
 
 
 def _report_for_viewed_week(data: dict):
-    """PDF solo con la semana que se está viendo; días desde SQLite."""
+    """PDF solo con la semana que se está viendo; texto desde SQLite."""
     year = int(data.get("year") or current_iso_week()[0])
     week = int(data.get("week") or current_iso_week()[1])
     week_dates = [d.isoformat() for d in week_days(year, week)]
     saved = get_days_text(week_dates)
+    meta = get_week_meta(year, week)
+    settings = get_settings()
     payload = {
+        **DEFAULTS,
+        **settings,
         **data,
         "year": year,
         "week": week,
+        "cumplimiento": meta["cumplimiento"],
+        "proyecciones": meta["proyecciones"],
+        "observaciones": meta["observaciones"],
         "days": [{"date": day, "text": saved.get(day, "")} for day in week_dates],
     }
     return report_from_dict(payload)

@@ -64,7 +64,7 @@
           </div>
           <div id="day-tabs" class="day-tabs" role="tablist" aria-label="Días de la semana"></div>
           <p class="hint">Una actividad por línea. No hace falta poner <code>--</code>.</p>
-          <textarea id="day-editor" placeholder="Escribe las actividades de este día…"></textarea>
+          <textarea id="day-editor" autocomplete="off" placeholder="Escribe las actividades de este día…"></textarea>
         </section>
 
         <section id="view-week" class="panel week-view">
@@ -80,15 +80,15 @@
           <summary>Otras secciones del informe</summary>
           <label class="field">
             <span>1) Cumplimiento e instrucciones</span>
-            <textarea id="cumplimiento" rows="3" placeholder="Ej. Entrega de módulo de reportes"></textarea>
+            <textarea id="cumplimiento" rows="3" autocomplete="off" placeholder="Ej. Entrega de módulo de reportes"></textarea>
           </label>
           <label class="field">
             <span>3) Proyecciones siguiente semana</span>
-            <textarea id="proyecciones" rows="3" placeholder="Ej. Continuar calibración de equipos"></textarea>
+            <textarea id="proyecciones" rows="3" autocomplete="off" placeholder="Ej. Continuar calibración de equipos"></textarea>
           </label>
           <label class="field">
             <span>4) Observaciones</span>
-            <textarea id="observaciones" rows="3" placeholder="Notas relevantes de la semana"></textarea>
+            <textarea id="observaciones" rows="3" autocomplete="off" placeholder="Notas relevantes de la semana"></textarea>
           </label>
         </details>
       </div>
@@ -114,7 +114,8 @@
   <script>
     window.__INITIAL__ = {
       year: {{ year }},
-      week: {{ week }}
+      week: {{ week }},
+      day: {{ day|tojson }}
     };
   </script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>

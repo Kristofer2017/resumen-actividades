@@ -31,6 +31,27 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS week_entries (
+                year INTEGER NOT NULL,
+                week INTEGER NOT NULL,
+                cumplimiento TEXT NOT NULL DEFAULT '',
+                proyecciones TEXT NOT NULL DEFAULT '',
+                observaciones TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (year, week)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
 
 
 def get_days_text(dates: list[str]) -> dict[str, str]:
@@ -89,6 +110,156 @@ def export_all_days() -> list[dict]:
         }
         for row in rows
     ]
+
+
+def get_week_meta(year: int, week: int) -> dict[str, str]:
+    with _lock, _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT cumplimiento, proyecciones, observaciones
+            FROM week_entries
+            WHERE year = ? AND week = ?
+            """,
+            (year, week),
+        ).fetchone()
+    if row is None:
+        return {"cumplimiento": "", "proyecciones": "", "observaciones": ""}
+    return {
+        "cumplimiento": row["cumplimiento"] or "",
+        "proyecciones": row["proyecciones"] or "",
+        "observaciones": row["observaciones"] or "",
+    }
+
+
+def upsert_week_meta(
+    year: int,
+    week: int,
+    cumplimiento: str = "",
+    proyecciones: str = "",
+    observaciones: str = "",
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    empty = not (
+        (cumplimiento or "").strip()
+        or (proyecciones or "").strip()
+        or (observaciones or "").strip()
+    )
+    with _lock, _connect() as conn:
+        if empty:
+            conn.execute(
+                "DELETE FROM week_entries WHERE year = ? AND week = ?",
+                (year, week),
+            )
+            return
+        conn.execute(
+            """
+            INSERT INTO week_entries (
+                year, week, cumplimiento, proyecciones, observaciones, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(year, week) DO UPDATE SET
+                cumplimiento = excluded.cumplimiento,
+                proyecciones = excluded.proyecciones,
+                observaciones = excluded.observaciones,
+                updated_at = excluded.updated_at
+            """,
+            (year, week, cumplimiento or "", proyecciones or "", observaciones or "", now),
+        )
+
+
+def export_all_weeks() -> list[dict]:
+    with _lock, _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT year, week, cumplimiento, proyecciones, observaciones, updated_at
+            FROM week_entries
+            ORDER BY year, week
+            """
+        ).fetchall()
+    return [
+        {
+            "year": row["year"],
+            "week": row["week"],
+            "cumplimiento": row["cumplimiento"] or "",
+            "proyecciones": row["proyecciones"] or "",
+            "observaciones": row["observaciones"] or "",
+            "updatedAt": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+def import_weeks(entries: list[dict], replace: bool = False) -> int:
+    count = 0
+    with _lock, _connect() as conn:
+        if replace:
+            conn.execute("DELETE FROM week_entries")
+        for entry in entries:
+            try:
+                year = int(entry.get("year"))
+                week = int(entry.get("week"))
+            except (TypeError, ValueError):
+                continue
+            cumplimiento = entry.get("cumplimiento") or ""
+            proyecciones = entry.get("proyecciones") or ""
+            observaciones = entry.get("observaciones") or ""
+            updated = (
+                entry.get("updatedAt")
+                or entry.get("updated_at")
+                or datetime.now(timezone.utc).isoformat()
+            )
+            if not (
+                str(cumplimiento).strip()
+                or str(proyecciones).strip()
+                or str(observaciones).strip()
+            ):
+                conn.execute(
+                    "DELETE FROM week_entries WHERE year = ? AND week = ?",
+                    (year, week),
+                )
+                continue
+            conn.execute(
+                """
+                INSERT INTO week_entries (
+                    year, week, cumplimiento, proyecciones, observaciones, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(year, week) DO UPDATE SET
+                    cumplimiento = excluded.cumplimiento,
+                    proyecciones = excluded.proyecciones,
+                    observaciones = excluded.observaciones,
+                    updated_at = excluded.updated_at
+                """,
+                (year, week, str(cumplimiento), str(proyecciones), str(observaciones), str(updated)),
+            )
+            count += 1
+    return count
+
+
+def get_settings() -> dict[str, str]:
+    with _lock, _connect() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {row["key"]: row["value"] for row in rows}
+
+
+def upsert_settings(values: dict[str, str]) -> None:
+    allowed = {"nombre", "cargo", "unidad"}
+    with _lock, _connect() as conn:
+        for key, value in values.items():
+            if key not in allowed:
+                continue
+            cleaned = (value or "").strip()
+            if cleaned:
+                conn.execute(
+                    """
+                    INSERT INTO settings (key, value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (key, cleaned),
+                )
+            else:
+                conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
 
 def import_days(entries: list[dict], replace: bool = False) -> int:

@@ -3,10 +3,15 @@
   const state = {
     year: window.__INITIAL__.year,
     week: window.__INITIAL__.week,
+    wantedDay: window.__INITIAL__.day || null,
     days: [],
     dayText: {},
     pendingSaves: {},
     savingDates: new Set(),
+    pendingMeta: false,
+    pendingSettings: false,
+    ready: false,
+    saveTimers: {},
     mode: "day",
     selectedDate: null,
     previewAbort: null,
@@ -97,17 +102,24 @@
 
   function collectVisibleText() {
     if (els.dayEditor && state.selectedDate) {
-      state.dayText[state.selectedDate] = els.dayEditor.value;
+      const text = els.dayEditor.value;
+      state.dayText[state.selectedDate] = text;
+      if (state.ready) state.pendingSaves[state.selectedDate] = text;
     }
     els.days.querySelectorAll("textarea[data-date]").forEach((ta) => {
       state.dayText[ta.dataset.date] = ta.value;
+      if (state.ready) state.pendingSaves[ta.dataset.date] = ta.value;
     });
   }
 
   function syncDayText(date, text) {
     state.dayText[date] = text;
+    if (!state.ready || !date) return;
     state.pendingSaves[date] = text;
-    persistDay(date).catch((e) => alert(e.message));
+    clearTimeout(state.saveTimers[date]);
+    state.saveTimers[date] = setTimeout(() => {
+      persistDay(date).catch((e) => alert(e.message));
+    }, 250);
   }
 
   async function persistDay(date) {
@@ -124,9 +136,109 @@
     }
   }
 
+  async function saveWeekMeta() {
+    const res = await fetch("/api/week/meta", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        year: state.year,
+        week: state.week,
+        cumplimiento: els.cumplimiento.value,
+        proyecciones: els.proyecciones.value,
+        observaciones: els.observaciones.value,
+      }),
+    });
+    if (!res.ok) throw new Error("No se pudieron guardar las secciones de la semana");
+  }
+
+  async function saveSettings() {
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre: els.nombre.value.trim(),
+        cargo: els.cargo.value.trim(),
+        unidad: els.unidad.value.trim(),
+      }),
+    });
+    if (!res.ok) throw new Error("No se pudieron guardar nombre y cargo");
+  }
+
+  function queueWeekMetaSave() {
+    if (!state.ready) return;
+    state.pendingMeta = true;
+    clearTimeout(state.saveTimers.meta);
+    state.saveTimers.meta = setTimeout(() => {
+      persistWeekMeta().catch((e) => alert(e.message));
+    }, 250);
+  }
+
+  function queueSettingsSave() {
+    if (!state.ready) return;
+    state.pendingSettings = true;
+    clearTimeout(state.saveTimers.settings);
+    state.saveTimers.settings = setTimeout(() => {
+      persistSettings().catch((e) => alert(e.message));
+    }, 250);
+  }
+
+  async function persistWeekMeta() {
+    if (!state.pendingMeta) return;
+    state.pendingMeta = false;
+    await saveWeekMeta();
+  }
+
+  async function persistSettings() {
+    if (!state.pendingSettings) return;
+    state.pendingSettings = false;
+    await saveSettings();
+  }
+
   async function flushPendingSaves() {
     collectVisibleText();
+    Object.values(state.saveTimers).forEach((timer) => clearTimeout(timer));
+    state.saveTimers = {};
     await Promise.all(currentWeekDates().map((date) => persistDay(date)));
+    await persistWeekMeta();
+    await persistSettings();
+  }
+
+  function keepalivePut(url, body) {
+    fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      keepalive: true,
+    });
+  }
+
+  function flushOnLeave() {
+    if (!state.ready) return;
+    collectVisibleText();
+    Object.values(state.saveTimers).forEach((timer) => clearTimeout(timer));
+    state.saveTimers = {};
+    Object.entries(state.pendingSaves).forEach(([date, text]) => {
+      keepalivePut("/api/days", { date, text });
+      delete state.pendingSaves[date];
+    });
+    if (state.pendingMeta) {
+      state.pendingMeta = false;
+      keepalivePut("/api/week/meta", {
+        year: state.year,
+        week: state.week,
+        cumplimiento: els.cumplimiento.value,
+        proyecciones: els.proyecciones.value,
+        observaciones: els.observaciones.value,
+      });
+    }
+    if (state.pendingSettings) {
+      state.pendingSettings = false;
+      keepalivePut("/api/settings", {
+        nombre: els.nombre.value.trim(),
+        cargo: els.cargo.value.trim(),
+        unidad: els.unidad.value.trim(),
+      });
+    }
   }
 
   function buildPayload() {
@@ -179,6 +291,7 @@
 
     while (state.previewQueued) {
       state.previewQueued = false;
+      if (state.ready) await flushPendingSaves().catch(() => {});
       collectVisibleText();
       const fingerprint = previewFingerprint();
       if (fingerprint === state.previewFingerprint) continue;
@@ -215,9 +328,22 @@
   }
 
   function pickDefaultDay() {
+    const wanted = state.wantedDay;
+    if (wanted && state.days.some((d) => d.date === wanted)) return wanted;
     const today = todayIso();
     if (state.days.some((d) => d.date === today)) return today;
     return state.days[0] ? state.days[0].date : null;
+  }
+
+  function syncUrl() {
+    const q = new URLSearchParams();
+    q.set("year", String(state.year));
+    q.set("week", String(state.week));
+    if (state.selectedDate) q.set("day", state.selectedDate);
+    const next = `?${q.toString()}`;
+    if (`${location.pathname}${location.search}` !== `${location.pathname}${next}`) {
+      history.replaceState(null, "", next);
+    }
   }
 
   function setMode(mode) {
@@ -236,7 +362,9 @@
   function selectDay(date) {
     collectVisibleText();
     state.selectedDate = date;
+    state.wantedDay = date;
     renderDayView();
+    syncUrl();
   }
 
   function renderDayTabs() {
@@ -305,7 +433,9 @@
   }
 
   async function loadWeek(year, week) {
-    await flushPendingSaves().catch(() => {});
+    const wasReady = state.ready;
+    if (wasReady) await flushPendingSaves().catch(() => {});
+    state.ready = false;
     const res = await fetch(`/api/week?year=${year}&week=${week}`);
     if (!res.ok) throw new Error("No se pudo cargar la semana");
     const data = await res.json();
@@ -316,11 +446,16 @@
     data.days.forEach((day) => {
       state.dayText[day.date] = day.text || "";
     });
+    els.cumplimiento.value = data.cumplimiento || "";
+    els.proyecciones.value = data.proyecciones || "";
+    els.observaciones.value = data.observaciones || "";
     state.selectedDate = pickDefaultDay();
     els.year.value = data.year;
     els.week.value = data.week;
     els.weekRange.textContent = `Semana ${data.week} · ${data.rangeLabel}`;
     renderViews();
+    syncUrl();
+    state.ready = true;
     queuePreview();
   }
 
@@ -334,6 +469,7 @@
       y += 1;
       w = 1;
     }
+    state.wantedDay = null;
     loadWeek(y, w).catch(alert);
   }
 
@@ -386,19 +522,41 @@
 
   $("btn-prev-week").addEventListener("click", () => shiftWeek(-1));
   $("btn-next-week").addEventListener("click", () => shiftWeek(1));
-  els.year.addEventListener("change", () =>
-    loadWeek(Number(els.year.value), Number(els.week.value)).catch(alert)
-  );
-  els.week.addEventListener("change", () =>
-    loadWeek(Number(els.year.value), Number(els.week.value)).catch(alert)
-  );
+  els.year.addEventListener("change", () => {
+    state.wantedDay = null;
+    loadWeek(Number(els.year.value), Number(els.week.value)).catch(alert);
+  });
+  els.week.addEventListener("change", () => {
+    state.wantedDay = null;
+    loadWeek(Number(els.year.value), Number(els.week.value)).catch(alert);
+  });
 
-  ["nombre", "cargo", "unidad", "cumplimiento", "proyecciones", "observaciones"].forEach(
-    (id) => {
-      $(id).addEventListener("input", queuePreview);
-      $(id).addEventListener("change", queuePreview);
-    }
-  );
+  ["nombre", "cargo", "unidad"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      queueSettingsSave();
+      queuePreview();
+    });
+    $(id).addEventListener("change", () => {
+      queueSettingsSave();
+      queuePreview();
+    });
+  });
+
+  ["cumplimiento", "proyecciones", "observaciones"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      queueWeekMetaSave();
+      queuePreview();
+    });
+    $(id).addEventListener("change", () => {
+      queueWeekMetaSave();
+      queuePreview();
+    });
+  });
+
+  window.addEventListener("pagehide", flushOnLeave);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushOnLeave();
+  });
 
   $("btn-clear-days").addEventListener("click", async () => {
     if (!confirm("¿Borrar las actividades de esta semana?")) return;
