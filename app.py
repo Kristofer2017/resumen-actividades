@@ -9,6 +9,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from db import (
     clear_days,
+    clear_week_resumen,
     export_all_days,
     export_all_weeks,
     get_days_text,
@@ -140,6 +141,7 @@ def api_save_week_meta():
         cumplimiento=data.get("cumplimiento") or "",
         proyecciones=data.get("proyecciones") or "",
         observaciones=data.get("observaciones") or "",
+        resumen=data.get("resumen") or "",
     )
     return jsonify({"ok": True, "year": year, "week": week})
 
@@ -160,6 +162,7 @@ def api_clear_week_days():
     week = int(data.get("week"))
     dates = [d.isoformat() for d in week_days(year, week)]
     clear_days(dates)
+    clear_week_resumen(year, week)
     return jsonify({"ok": True, "dates": dates})
 
 
@@ -240,6 +243,7 @@ def _report_for_viewed_week(data: dict):
         "cumplimiento": meta["cumplimiento"],
         "proyecciones": meta["proyecciones"],
         "observaciones": meta["observaciones"],
+        "resumen": meta["resumen"],
         "days": [{"date": day, "text": saved.get(day, "")} for day in week_dates],
     }
     return report_from_dict(payload)

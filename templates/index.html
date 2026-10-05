@@ -24,6 +24,7 @@
         <div class="mode-toggle" role="tablist" aria-label="Vista">
           <button type="button" id="btn-mode-day" class="mode-btn is-active" aria-pressed="true">Día</button>
           <button type="button" id="btn-mode-week" class="mode-btn" aria-pressed="false">Semana</button>
+          <button type="button" id="btn-mode-general" class="mode-btn" aria-pressed="false">General</button>
         </div>
         <div class="week-controls">
           <label class="field inline">
@@ -74,6 +75,18 @@
           </div>
           <p class="hint">Una actividad por línea. No hace falta poner <code>--</code>.</p>
           <div id="days" class="days"></div>
+        </section>
+
+        <section id="view-general" class="panel general-view">
+          <div class="section-head">
+            <h2>Resumen de la semana</h2>
+            <span class="chip" id="general-chip">Sin resumen</span>
+          </div>
+          <p class="hint">
+            Describe la semana en general (una actividad por línea).
+            Si hay resumen general, el PDF lo usa en lugar del desglose por día.
+          </p>
+          <textarea id="resumen" autocomplete="off" placeholder="Escribe las actividades de la semana…"></textarea>
         </section>
 
         <details class="panel extras">

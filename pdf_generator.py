@@ -213,6 +213,7 @@ class ActivityReport:
     cumplimiento: str = ""
     proyecciones: str = ""
     observaciones: str = ""
+    resumen: str = ""
     days: list[DayActivities] = field(default_factory=list)
 
     def ensure_days(self) -> None:
@@ -226,7 +227,17 @@ class ActivityReport:
         self.ensure_days()
         return [d for d in self.days if d.has_content]
 
+    def resumen_items(self) -> list[str]:
+        return _lines_from_multiline(self.resumen)
+
+    def uses_general_resumen(self) -> bool:
+        """El resumen general tiene prioridad sobre las actividades por día."""
+        return bool(self.resumen_items())
+
     def date_range(self) -> tuple[date, date]:
+        if self.uses_general_resumen():
+            days = week_days(self.year, self.week)
+            return days[0], days[4]
         active = self.active_days()
         if active:
             return active[0].date, active[-1].date
@@ -337,12 +348,16 @@ def generate_pdf(report: ActivityReport) -> bytes:
     proyeccion_items = _lines_from_multiline(report.proyecciones)
     observacion_items = _lines_from_multiline(report.observaciones)
 
-    def measure_bullets(items: list[str]) -> float:
+    def measure_lines(items: list[str], prefix: str = "") -> float:
         h = 0.0
         for item in items:
-            lines = _wrap_text(f"-- {item}", "Arial", FONT_BODY, max_body_w)
+            text = f"{prefix}{item}" if prefix else item
+            lines = _wrap_text(text, "Arial", FONT_BODY, max_body_w)
             h += max(1, len(lines)) * LINE_H
         return h
+
+    def measure_bullets(items: list[str]) -> float:
+        return measure_lines(items, prefix="-- ")
 
     def needed_section(title_pad: float, items: list[str], empty_h: float) -> float:
         """Altura al contenido: título + ítems + padding inferior mínimo."""
@@ -351,10 +366,15 @@ def generate_pdf(report: ActivityReport) -> bytes:
             return empty_h
         return title_pad + LINE_H + 2 + body + 6
 
+    resumen_general = report.resumen_items() if report.uses_general_resumen() else []
+
     def needed_sec2() -> float:
         """Altura exacta del resumen: sin relleno vacío debajo del contenido."""
         # top padding + título de sección
         h = 12.9 + LINE_H + 2
+        if resumen_general:
+            h += measure_lines(resumen_general)  # sin "--"
+            return h + 6
         if not active:
             return h + LINE_H + 4  # solo título + un poco de aire
         for i, day in enumerate(active):
@@ -443,16 +463,22 @@ def generate_pdf(report: ActivityReport) -> bytes:
     )
     y += LINE_H + 2
 
-    for day_idx, day in enumerate(active):
-        c.setFont("Arial-Bold", FONT_BODY)
-        c.drawString(TEXT_BODY_X, _y(y) + 2, format_day_header(day.date))
-        y += LINE_H
-        for item in day.items:
+    if resumen_general:
+        for item in resumen_general:
             y = _draw_wrapped(
-                c, f"-- {item}", TEXT_BODY_X, y, "Arial", FONT_BODY, max_body_w
+                c, item, TEXT_BODY_X, y, "Arial", FONT_BODY, max_body_w
             )
-        if day_idx < len(active) - 1:
+    else:
+        for day_idx, day in enumerate(active):
+            c.setFont("Arial-Bold", FONT_BODY)
+            c.drawString(TEXT_BODY_X, _y(y) + 2, format_day_header(day.date))
             y += LINE_H
+            for item in day.items:
+                y = _draw_wrapped(
+                    c, f"-- {item}", TEXT_BODY_X, y, "Arial", FONT_BODY, max_body_w
+                )
+            if day_idx < len(active) - 1:
+                y += LINE_H
 
     # 3) Proyecciones
     y = sec2_bottom + 13.7
@@ -516,6 +542,7 @@ def report_from_dict(data: dict) -> ActivityReport:
         cumplimiento=data.get("cumplimiento") or "",
         proyecciones=data.get("proyecciones") or "",
         observaciones=data.get("observaciones") or "",
+        resumen=data.get("resumen") or "",
         days=days,
     )
     report.ensure_days()

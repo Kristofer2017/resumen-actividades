@@ -20,6 +20,12 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init_db() -> None:
     with _lock, _connect() as conn:
         conn.execute(
@@ -39,11 +45,13 @@ def init_db() -> None:
                 cumplimiento TEXT NOT NULL DEFAULT '',
                 proyecciones TEXT NOT NULL DEFAULT '',
                 observaciones TEXT NOT NULL DEFAULT '',
+                resumen TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (year, week)
             )
             """
         )
+        _ensure_column(conn, "week_entries", "resumen", "TEXT NOT NULL DEFAULT ''")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -116,18 +124,24 @@ def get_week_meta(year: int, week: int) -> dict[str, str]:
     with _lock, _connect() as conn:
         row = conn.execute(
             """
-            SELECT cumplimiento, proyecciones, observaciones
+            SELECT cumplimiento, proyecciones, observaciones, resumen
             FROM week_entries
             WHERE year = ? AND week = ?
             """,
             (year, week),
         ).fetchone()
     if row is None:
-        return {"cumplimiento": "", "proyecciones": "", "observaciones": ""}
+        return {
+            "cumplimiento": "",
+            "proyecciones": "",
+            "observaciones": "",
+            "resumen": "",
+        }
     return {
         "cumplimiento": row["cumplimiento"] or "",
         "proyecciones": row["proyecciones"] or "",
         "observaciones": row["observaciones"] or "",
+        "resumen": row["resumen"] or "",
     }
 
 
@@ -137,12 +151,14 @@ def upsert_week_meta(
     cumplimiento: str = "",
     proyecciones: str = "",
     observaciones: str = "",
+    resumen: str = "",
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     empty = not (
         (cumplimiento or "").strip()
         or (proyecciones or "").strip()
         or (observaciones or "").strip()
+        or (resumen or "").strip()
     )
     with _lock, _connect() as conn:
         if empty:
@@ -154,24 +170,45 @@ def upsert_week_meta(
         conn.execute(
             """
             INSERT INTO week_entries (
-                year, week, cumplimiento, proyecciones, observaciones, updated_at
+                year, week, cumplimiento, proyecciones, observaciones, resumen, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(year, week) DO UPDATE SET
                 cumplimiento = excluded.cumplimiento,
                 proyecciones = excluded.proyecciones,
                 observaciones = excluded.observaciones,
+                resumen = excluded.resumen,
                 updated_at = excluded.updated_at
             """,
-            (year, week, cumplimiento or "", proyecciones or "", observaciones or "", now),
+            (
+                year,
+                week,
+                cumplimiento or "",
+                proyecciones or "",
+                observaciones or "",
+                resumen or "",
+                now,
+            ),
         )
+
+
+def clear_week_resumen(year: int, week: int) -> None:
+    meta = get_week_meta(year, week)
+    upsert_week_meta(
+        year,
+        week,
+        cumplimiento=meta["cumplimiento"],
+        proyecciones=meta["proyecciones"],
+        observaciones=meta["observaciones"],
+        resumen="",
+    )
 
 
 def export_all_weeks() -> list[dict]:
     with _lock, _connect() as conn:
         rows = conn.execute(
             """
-            SELECT year, week, cumplimiento, proyecciones, observaciones, updated_at
+            SELECT year, week, cumplimiento, proyecciones, observaciones, resumen, updated_at
             FROM week_entries
             ORDER BY year, week
             """
@@ -183,6 +220,7 @@ def export_all_weeks() -> list[dict]:
             "cumplimiento": row["cumplimiento"] or "",
             "proyecciones": row["proyecciones"] or "",
             "observaciones": row["observaciones"] or "",
+            "resumen": row["resumen"] or "",
             "updatedAt": row["updated_at"],
         }
         for row in rows
@@ -203,6 +241,7 @@ def import_weeks(entries: list[dict], replace: bool = False) -> int:
             cumplimiento = entry.get("cumplimiento") or ""
             proyecciones = entry.get("proyecciones") or ""
             observaciones = entry.get("observaciones") or ""
+            resumen = entry.get("resumen") or ""
             updated = (
                 entry.get("updatedAt")
                 or entry.get("updated_at")
@@ -212,6 +251,7 @@ def import_weeks(entries: list[dict], replace: bool = False) -> int:
                 str(cumplimiento).strip()
                 or str(proyecciones).strip()
                 or str(observaciones).strip()
+                or str(resumen).strip()
             ):
                 conn.execute(
                     "DELETE FROM week_entries WHERE year = ? AND week = ?",
@@ -221,16 +261,25 @@ def import_weeks(entries: list[dict], replace: bool = False) -> int:
             conn.execute(
                 """
                 INSERT INTO week_entries (
-                    year, week, cumplimiento, proyecciones, observaciones, updated_at
+                    year, week, cumplimiento, proyecciones, observaciones, resumen, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(year, week) DO UPDATE SET
                     cumplimiento = excluded.cumplimiento,
                     proyecciones = excluded.proyecciones,
                     observaciones = excluded.observaciones,
+                    resumen = excluded.resumen,
                     updated_at = excluded.updated_at
                 """,
-                (year, week, str(cumplimiento), str(proyecciones), str(observaciones), str(updated)),
+                (
+                    year,
+                    week,
+                    str(cumplimiento),
+                    str(proyecciones),
+                    str(observaciones),
+                    str(resumen),
+                    str(updated),
+                ),
             )
             count += 1
     return count

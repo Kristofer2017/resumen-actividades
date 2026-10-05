@@ -442,11 +442,28 @@ textarea {
   z-index: 1;
 }
 
-body.mode-week .day-view {
+.general-view {
+  flex: 1;
+  min-height: 280px;
   display: none;
+  flex-direction: column;
 }
 
-body.mode-day .week-view {
+#resumen {
+  flex: 1;
+  min-height: 220px;
+  resize: none;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  padding: 14px;
+}
+
+body.mode-day .day-view {
+  display: flex;
+}
+
+body.mode-day .week-view,
+body.mode-day .general-view {
   display: none;
 }
 
@@ -454,8 +471,18 @@ body.mode-week .week-view {
   display: block;
 }
 
-body.mode-day .day-view {
+body.mode-week .day-view,
+body.mode-week .general-view {
+  display: none;
+}
+
+body.mode-general .general-view {
   display: flex;
+}
+
+body.mode-general .day-view,
+body.mode-general .week-view {
+  display: none;
 }
 
 @media (max-width: 980px) {

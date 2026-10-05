@@ -41,8 +41,11 @@
     dayTabs: $("day-tabs"),
     dayEditor: $("day-editor"),
     dayTitle: $("day-title"),
+    resumen: $("resumen"),
+    generalChip: $("general-chip"),
     btnModeDay: $("btn-mode-day"),
     btnModeWeek: $("btn-mode-week"),
+    btnModeGeneral: $("btn-mode-general"),
   };
 
   function todayIso() {
@@ -76,6 +79,20 @@
     const label = filledLabel(countFilledDays());
     els.filledCount.textContent = label;
     els.filledCountWeek.textContent = label;
+    updateGeneralChip();
+  }
+
+  function updateGeneralChip() {
+    if (!els.generalChip) return;
+    const hasResumen = Boolean((els.resumen.value || "").trim());
+    const days = countFilledDays();
+    if (hasResumen && days > 0) {
+      els.generalChip.textContent = "PDF prioriza resumen";
+    } else if (hasResumen) {
+      els.generalChip.textContent = "Resumen general";
+    } else {
+      els.generalChip.textContent = "Sin resumen";
+    }
   }
 
   function setPreviewStatus(text) {
@@ -146,6 +163,7 @@
         cumplimiento: els.cumplimiento.value,
         proyecciones: els.proyecciones.value,
         observaciones: els.observaciones.value,
+        resumen: els.resumen.value,
       }),
     });
     if (!res.ok) throw new Error("No se pudieron guardar las secciones de la semana");
@@ -229,6 +247,7 @@
         cumplimiento: els.cumplimiento.value,
         proyecciones: els.proyecciones.value,
         observaciones: els.observaciones.value,
+        resumen: els.resumen.value,
       });
     }
     if (state.pendingSettings) {
@@ -251,6 +270,7 @@
       cumplimiento: els.cumplimiento.value,
       proyecciones: els.proyecciones.value,
       observaciones: els.observaciones.value,
+      resumen: els.resumen.value,
     };
   }
 
@@ -351,12 +371,16 @@
     state.mode = mode;
     document.body.classList.toggle("mode-day", mode === "day");
     document.body.classList.toggle("mode-week", mode === "week");
+    document.body.classList.toggle("mode-general", mode === "general");
     els.btnModeDay.classList.toggle("is-active", mode === "day");
     els.btnModeWeek.classList.toggle("is-active", mode === "week");
+    els.btnModeGeneral.classList.toggle("is-active", mode === "general");
     els.btnModeDay.setAttribute("aria-pressed", String(mode === "day"));
     els.btnModeWeek.setAttribute("aria-pressed", String(mode === "week"));
+    els.btnModeGeneral.setAttribute("aria-pressed", String(mode === "general"));
     if (mode === "week") renderWeekDays();
-    else renderDayView();
+    else if (mode === "day") renderDayView();
+    else updateGeneralChip();
   }
 
   function selectDay(date) {
@@ -429,7 +453,8 @@
 
   function renderViews() {
     if (state.mode === "week") renderWeekDays();
-    else renderDayView();
+    else if (state.mode === "day") renderDayView();
+    else updateGeneralChip();
   }
 
   async function loadWeek(year, week) {
@@ -449,6 +474,7 @@
     els.cumplimiento.value = data.cumplimiento || "";
     els.proyecciones.value = data.proyecciones || "";
     els.observaciones.value = data.observaciones || "";
+    els.resumen.value = data.resumen || "";
     state.selectedDate = pickDefaultDay();
     els.year.value = data.year;
     els.week.value = data.week;
@@ -519,6 +545,7 @@
 
   els.btnModeDay.addEventListener("click", () => setMode("day"));
   els.btnModeWeek.addEventListener("click", () => setMode("week"));
+  els.btnModeGeneral.addEventListener("click", () => setMode("general"));
 
   $("btn-prev-week").addEventListener("click", () => shiftWeek(-1));
   $("btn-next-week").addEventListener("click", () => shiftWeek(1));
@@ -542,12 +569,14 @@
     });
   });
 
-  ["cumplimiento", "proyecciones", "observaciones"].forEach((id) => {
+  ["cumplimiento", "proyecciones", "observaciones", "resumen"].forEach((id) => {
     $(id).addEventListener("input", () => {
+      if (id === "resumen") updateGeneralChip();
       queueWeekMetaSave();
       queuePreview();
     });
     $(id).addEventListener("change", () => {
+      if (id === "resumen") updateGeneralChip();
       queueWeekMetaSave();
       queuePreview();
     });
@@ -559,7 +588,7 @@
   });
 
   $("btn-clear-days").addEventListener("click", async () => {
-    if (!confirm("¿Borrar las actividades de esta semana?")) return;
+    if (!confirm("¿Borrar las actividades de esta semana (días y resumen general)?")) return;
     state.pendingSaves = {};
     const res = await fetch("/api/week/clear-days", {
       method: "POST",
@@ -576,6 +605,7 @@
     currentWeekDates().forEach((date) => {
       state.dayText[date] = "";
     });
+    els.resumen.value = "";
     renderViews();
     queuePreview();
   });
