@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_file
+from dotenv import load_dotenv
+from flask import (
+    Flask,
+    abort,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+)
 
 from db import (
     clear_days,
@@ -22,6 +31,8 @@ from db import (
     upsert_settings,
     upsert_week_meta,
 )
+from docx_generator import generate_docx, suggested_docx_filename
+from commit_suggestions import SuggestionError, build_week_suggestions
 from pdf_generator import (
     generate_pdf,
     current_iso_week,
@@ -33,8 +44,12 @@ from pdf_generator import (
     MESES,
 )
 
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 app = Flask(__name__)
 init_db()
+
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
 
 DEFAULTS = {
     "nombre": "Rafael Antonio Aparicio Umaña",
@@ -47,25 +62,31 @@ def _parse_day(value: str) -> str:
     return datetime.strptime(value[:10], "%Y-%m-%d").date().isoformat()
 
 
+def _spa_index():
+    """Devuelve el index compilado por Vite (o un aviso si falta)."""
+    if (FRONTEND_DIST / "index.html").is_file():
+        return send_from_directory(FRONTEND_DIST, "index.html")
+    return (
+        "El frontend no está compilado.\n"
+        "Ejecuta: cd frontend && npm install && npm run build\n",
+        503,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
+
+
 @app.get("/")
 def index():
-    year, week = current_iso_week()
-    try:
-        if request.args.get("year"):
-            year = int(request.args.get("year"))
-        if request.args.get("week"):
-            week = int(request.args.get("week"))
-    except ValueError:
-        year, week = current_iso_week()
-    day = request.args.get("day") or None
-    settings = get_settings()
-    return render_template(
-        "index.html",
-        defaults={**DEFAULTS, **{k: v for k, v in settings.items() if k in DEFAULTS}},
-        year=year,
-        week=week,
-        day=day,
-    )
+    return _spa_index()
+
+
+@app.get("/<path:path>")
+def frontend_files(path: str):
+    """Sirve los assets de Vite y deja que React maneje las rutas del SPA."""
+    if path.startswith("api/"):
+        abort(404)
+    if (FRONTEND_DIST / path).is_file():
+        return send_from_directory(FRONTEND_DIST, path)
+    return _spa_index()
 
 
 @app.get("/api/week")
@@ -94,6 +115,33 @@ def api_week():
             **meta,
         }
     )
+
+
+@app.get("/api/suggestions")
+def api_suggestions():
+    try:
+        year = int(request.args.get("year") or 0)
+        week = int(request.args.get("week") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Parámetros inválidos"}), 400
+
+    if not 2000 <= year <= 2100 or not 1 <= week <= 53:
+        return jsonify({"error": "Semana inválida"}), 400
+
+    try:
+        use_llm = request.args.get("ai", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        return jsonify(
+            build_week_suggestions(year, week, use_llm=use_llm)
+        )
+    except SuggestionError as exc:
+        return jsonify({"error": str(exc)}), exc.status
+    except Exception:
+        app.logger.exception("Error generando sugerencias de commits")
+        return jsonify({"error": "No se pudieron generar las sugerencias"}), 500
 
 
 def _range_label(start, end) -> str:
@@ -258,6 +306,23 @@ def api_pdf():
     return send_file(
         BytesIO(pdf_bytes),
         mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.post("/api/docx")
+def api_docx():
+    data = request.get_json(force=True, silent=True) or {}
+    report = _report_for_viewed_week(data)
+    docx_bytes = generate_docx(report)
+    filename = suggested_docx_filename(report)
+    return send_file(
+        BytesIO(docx_bytes),
+        mimetype=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
         as_attachment=True,
         download_name=filename,
     )

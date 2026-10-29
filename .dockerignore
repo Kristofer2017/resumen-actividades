@@ -7,4 +7,8 @@ __pycache__
 venv
 *.md
 run.bat
+dev.bat
 data/
+frontend/node_modules/
+frontend/dist/
+.env

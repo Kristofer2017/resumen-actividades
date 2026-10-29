@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -15,7 +16,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 BASE_DIR = Path(__file__).resolve().parent
-LOGO_PATH = BASE_DIR / "static" / "logo.png"
+LOGO_PATH = BASE_DIR / "static" / "logo-informe.png"
 
 
 def _font_file(name: str) -> str:
@@ -193,6 +194,12 @@ def _lines_from_multiline(text: str) -> list[str]:
     return items
 
 
+def _paragraphs_from_multiline(text: str) -> list[list[str]]:
+    """Separa el texto en párrafos (línea en blanco = nuevo párrafo)."""
+    blocks = re.split(r"\n[ \t]*\n", (text or "").replace("\r\n", "\n"))
+    return [lines for lines in (_lines_from_multiline(b) for b in blocks) if lines]
+
+
 @dataclass
 class DayActivities:
     date: date
@@ -227,12 +234,12 @@ class ActivityReport:
         self.ensure_days()
         return [d for d in self.days if d.has_content]
 
-    def resumen_items(self) -> list[str]:
-        return _lines_from_multiline(self.resumen)
+    def resumen_paragraphs(self) -> list[list[str]]:
+        return _paragraphs_from_multiline(self.resumen)
 
     def uses_general_resumen(self) -> bool:
         """El resumen general tiene prioridad sobre las actividades por día."""
-        return bool(self.resumen_items())
+        return bool(self.resumen_paragraphs())
 
     def date_range(self) -> tuple[date, date]:
         if self.uses_general_resumen():
@@ -366,14 +373,17 @@ def generate_pdf(report: ActivityReport) -> bytes:
             return empty_h
         return title_pad + LINE_H + 2 + body + 6
 
-    resumen_general = report.resumen_items() if report.uses_general_resumen() else []
+    resumen_general = report.resumen_paragraphs() if report.uses_general_resumen() else []
 
     def needed_sec2() -> float:
         """Altura exacta del resumen: sin relleno vacío debajo del contenido."""
         # top padding + título de sección
         h = 12.9 + LINE_H + 2
         if resumen_general:
-            h += measure_lines(resumen_general)  # sin "--"
+            for i, paragraph in enumerate(resumen_general):
+                h += measure_lines(paragraph)  # sin "--"
+                if i < len(resumen_general) - 1:
+                    h += LINE_H  # espacio entre párrafos
             return h + 6
         if not active:
             return h + LINE_H + 4  # solo título + un poco de aire
@@ -464,10 +474,13 @@ def generate_pdf(report: ActivityReport) -> bytes:
     y += LINE_H + 2
 
     if resumen_general:
-        for item in resumen_general:
-            y = _draw_wrapped(
-                c, item, TEXT_BODY_X, y, "Arial", FONT_BODY, max_body_w
-            )
+        for par_idx, paragraph in enumerate(resumen_general):
+            for item in paragraph:
+                y = _draw_wrapped(
+                    c, item, TEXT_BODY_X, y, "Arial", FONT_BODY, max_body_w
+                )
+            if par_idx < len(resumen_general) - 1:
+                y += LINE_H
     else:
         for day_idx, day in enumerate(active):
             c.setFont("Arial-Bold", FONT_BODY)

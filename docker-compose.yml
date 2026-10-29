@@ -6,9 +6,16 @@ services:
     ports:
       - "5050:5050"
     volumes:
-      - .:/app
+      - ./data:/app/data
+      - ../heset:/app/repositories/heset:ro
     environment:
       FONT_DIR: /usr/share/fonts/truetype/msttcorefonts
       PYTHONUNBUFFERED: "1"
       TZ: America/El_Salvador
+      HESET_REPO_PATH: /app/repositories/heset
+      HESET_AUTHOR_EMAIL: ${HESET_AUTHOR_EMAIL:-}
+      HESET_AUTHOR_NAME: ${HESET_AUTHOR_NAME:-}
+      HESET_LLM_API_KEY: ${HESET_LLM_API_KEY:-}
+      HESET_LLM_BASE_URL: ${HESET_LLM_BASE_URL:-https://api.openai.com/v1}
+      HESET_LLM_MODEL: ${HESET_LLM_MODEL:-gpt-4o-mini}
     restart: always
